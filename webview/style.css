@@ -1,0 +1,355 @@
+:root {
+    --container-bg: var(--vscode-editor-background, #181818);
+    --input-bg: var(--vscode-input-background, #242424);
+    --border-color: var(--vscode-panel-border, #333333);
+    --text-primary: var(--vscode-foreground, #cccccc);
+    --text-secondary: var(--vscode-descriptionForeground, #888888);
+    --accent: var(--vscode-button-background, #007fd4);
+    --accent-hover: var(--vscode-button-hoverBackground, #0065a9);
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+.model-selector {
+    background: transparent;
+    color: inherit;
+    border: none;
+    outline: none;
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+    padding: 0;
+}
+
+.model-selector option {
+    background-color: var(--container-bg);
+    color: var(--text-primary);
+}
+
+
+body {
+    padding: 0;
+    margin: 0;
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background-color: var(--container-bg);
+}
+
+#app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--container-bg);
+    z-index: 10;
+}
+
+#app-header .title {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+#toggle-settings-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    padding: 4px;
+    transition: all 0.2s;
+}
+
+#toggle-settings-btn:hover {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 45px);
+    width: 100%;
+}
+
+#settings-view {
+    padding: 20px;
+    gap: 24px;
+    overflow-y: auto;
+}
+
+#settings-view h2 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.setting-item {
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.auth-placeholder {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 4px 0;
+}
+
+.avatar-circle {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background-color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.user-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.user-email {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.user-plan {
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: inline-block;
+    padding: 3px 8px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    margin-top: 4px;
+    align-self: flex-start;
+}
+
+.secondary-button {
+    background-color: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    align-self: flex-start;
+    transition: all 0.2s;
+}
+
+.secondary-button:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: var(--text-secondary);
+}
+
+.primary-button {
+    background-color: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    align-self: flex-start;
+    transition: background-color 0.2s;
+}
+
+.primary-button:hover {
+    background-color: var(--accent-hover);
+}
+
+#messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.message-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.message-header {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.message-content {
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--text-primary);
+}
+
+.user-message .message-header {
+    color: var(--text-primary);
+}
+
+.assistant-message .message-header {
+    color: var(--accent);
+}
+
+#bottom-anchor {
+    padding: 0 20px 20px 20px;
+}
+
+#input-wrapper {
+    display: flex;
+    flex-direction: column;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px;
+    transition: border-color 0.2s;
+}
+
+#input-wrapper:focus-within {
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+#prompt-input {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    resize: none;
+    outline: none;
+    min-height: 24px;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 0;
+    margin-bottom: 8px;
+}
+
+#prompt-input::placeholder {
+    color: var(--text-secondary);
+}
+
+#action-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.action-left {
+    display: flex;
+    gap: 12px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.action-btn {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.7;
+}
+
+.action-btn:hover {
+    opacity: 1;
+    color: var(--text-primary);
+}
+
+#send-button {
+    background-color: transparent;
+    color: var(--text-secondary);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+#send-button:hover {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+#loading {
+    padding: 8px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+@keyframes spin {
+  100% { transform: rotate(360deg); }
+}
+.spin {
+  animation: spin 2s linear infinite;
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}

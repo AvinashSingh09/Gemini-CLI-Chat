@@ -1,0 +1,54 @@
+{
+  "name": "gemini-vscode-chat",
+  "displayName": "Gemini CLI Chat Interface",
+  "description": "A VS Code extension that wraps the Gemini CLI into a Webview chat interface.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gemini-chat.start",
+        "title": "Gemini Chat: Open Chat UI"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gemini-chat-container",
+          "title": "Gemini",
+          "icon": "media/gemini-color.svg"
+        }
+      ]
+    },
+    "views": {
+      "gemini-chat-container": [
+        {
+          "type": "webview",
+          "id": "geminiChatView",
+          "name": "Gemini Chat",
+          "icon": "media/gemini-color.svg"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "20.x",
+    "typescript": "^5.1.3"
+  }
+}
