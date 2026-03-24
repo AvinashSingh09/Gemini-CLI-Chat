@@ -32,7 +32,7 @@
         {
           "type": "webview",
           "id": "geminiChatView",
-          "name": "Gemini Chat",
+          "name": " ",
           "icon": "media/gemini-color.svg"
         }
       ]

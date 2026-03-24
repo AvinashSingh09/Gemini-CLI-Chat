@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { GeminiChatViewProvider } from './GeminiChatViewProvider';
 
 export function activate(context: vscode.ExtensionContext) {
-    const provider = new GeminiChatViewProvider(context.extensionUri);
+    const provider = new GeminiChatViewProvider(context.extensionUri, context);
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(GeminiChatViewProvider.viewType, provider)
