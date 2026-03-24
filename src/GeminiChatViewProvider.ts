@@ -421,12 +421,16 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
             this._context.workspaceState.update('geminiChatSessions', sessions);
         }
 
-        // Capture git state BEFORE CLI runs (for file change detection)
+        // Capture state BEFORE CLI runs (for file change detection)
         let preGitNumstat = '';
+        let preMtimes = new Map<string, number>();
         if (cwdPath) {
             try {
                 preGitNumstat = execSync('git diff --numstat', { cwd: cwdPath, encoding: 'utf8', timeout: 5000 }).trim();
-            } catch {}
+            } catch {
+                // If not a git repo, fallback to collecting mtimes
+                preMtimes = this.getFileMtimes(cwdPath);
+            }
         }
 
         const child = spawn(command, args, spawnOptions);
@@ -534,18 +538,72 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
                     this._context.workspaceState.update('geminiChatSessions', allSessions);
                 }
 
-                // Detect file changes by comparing git state before/after
+                // Detect file changes (Git preferred, fallback to mtime)
                 if (cwdPath) {
+                    let changedFiles: any[] = [];
                     try {
                         const postGitNumstat = execSync('git diff --numstat', { cwd: cwdPath, encoding: 'utf8', timeout: 5000 }).trim();
-                        const changedFiles = this.detectFileChanges(preGitNumstat, postGitNumstat, cwdPath);
-                        if (changedFiles.length > 0 && this._view) {
-                            this._view.webview.postMessage({ type: 'fileChanges', files: changedFiles });
-                        }
-                    } catch {}
+                        changedFiles = this.detectFileChanges(preGitNumstat, postGitNumstat, cwdPath);
+                    } catch {
+                        // Git failed (not a repo), use the mtime fallback
+                        const postMtimes = this.getFileMtimes(cwdPath);
+                        postMtimes.forEach((mtime, file) => {
+                            const preMtime = preMtimes.get(file);
+                            // If it's a new file or has a newer modified time
+                            if (!preMtime || mtime > preMtime) {
+                                const ext = path.extname(file).substring(1).toLowerCase();
+                                changedFiles.push({
+                                    file: path.relative(cwdPath, file).replace(/\\/g, '/'),
+                                    name: path.basename(file),
+                                    fullPath: file,
+                                    ext: ext,
+                                    insertions: undefined,
+                                    deletions: undefined
+                                });
+                            }
+                        });
+                        // Fast deletion check
+                        preMtimes.forEach((mtime, file) => {
+                            if (!postMtimes.has(file)) {
+                                const ext = path.extname(file).substring(1).toLowerCase();
+                                changedFiles.push({
+                                    file: path.relative(cwdPath, file).replace(/\\/g, '/'),
+                                    name: path.basename(file),
+                                    fullPath: file,
+                                    ext: ext,
+                                    insertions: 0,
+                                    deletions: 1
+                                });
+                            }
+                        });
+                    }
+
+                    if (changedFiles.length > 0 && this._view) {
+                        this._view.webview.postMessage({ type: 'fileChanges', files: changedFiles });
+                    }
                 }
             }
         });
+    }
+
+    private getFileMtimes(dir: string, mtimes: Map<string, number> = new Map()): Map<string, number> {
+        try {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+                // Ignore extremely heavy or irrelevant directories
+                if (file === 'node_modules' || file === '.git' || file === 'out' || file === 'dist' || file === '.next' || file === '.gemini') continue;
+                
+                const fullPath = path.join(dir, file);
+                const stat = fs.statSync(fullPath);
+                
+                if (stat.isDirectory()) {
+                    this.getFileMtimes(fullPath, mtimes);
+                } else {
+                    mtimes.set(fullPath, stat.mtimeMs);
+                }
+            }
+        } catch {}
+        return mtimes;
     }
 
     private detectFileChanges(pre: string, post: string, cwdPath: string): any[] {

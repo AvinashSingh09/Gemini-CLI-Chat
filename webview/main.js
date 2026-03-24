@@ -658,13 +658,16 @@
                 vscode.postMessage({ type: 'openFile', value: file.fullPath });
             });
             
+            const addHtml = typeof file.insertions === 'number' ? `<span class="chip-diff diff-add">+${file.insertions}</span>` : '';
+            const delHtml = typeof file.deletions === 'number' ? `<span class="chip-diff diff-del">-${file.deletions}</span>` : '';
+            
             chip.innerHTML = `
                 <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
                 <span class="chip-action">${action}</span>
                 <span class="chip-lang">${ext}</span>
                 <span class="chip-name">${file.name}</span>
-                <span class="chip-diff diff-add">+${file.insertions}</span>
-                <span class="chip-diff diff-del">-${file.deletions}</span>
+                ${addHtml}
+                ${delHtml}
                 <svg class="chip-open-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
             `;
             
@@ -726,66 +729,4 @@
     // Fetch auth status at launch
     vscode.postMessage({ type: 'getAuthState' });
 
-    // ---- File Change Chips (Antigravity-style) ----
-    function getLangTag(ext) {
-        const map = {
-            'ts': 'TS', 'tsx': 'TSX', 'js': 'JS', 'jsx': 'JSX',
-            'css': 'CSS', 'scss': 'SCSS', 'less': 'LESS',
-            'html': 'HTML', 'json': 'JSON', 'md': 'MD',
-            'py': 'PY', 'rs': 'RS', 'go': 'GO',
-            'yaml': 'YAML', 'yml': 'YAML', 'toml': 'TOML',
-            'sh': 'SH', 'bash': 'SH', 'sql': 'SQL',
-            'xml': 'XML', 'svg': 'SVG', 'vue': 'VUE',
-        };
-        return map[ext] || (ext ? ext.toUpperCase() : '');
-    }
-
-    function renderFileChanges(files) {
-        if (!files || files.length === 0) return;
-
-        const section = document.createElement('div');
-        section.className = 'file-changes-section animate-in';
-
-        // Summary header
-        const header = document.createElement('div');
-        header.className = 'file-changes-header';
-        const totalAdd = files.reduce((s, f) => s + f.insertions, 0);
-        const totalDel = files.reduce((s, f) => s + f.deletions, 0);
-        header.innerHTML = `
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-            <span>${files.length} file${files.length > 1 ? 's' : ''} changed</span>
-            <span class="fc-stats-summary"><span class="fc-add">+${totalAdd}</span> <span class="fc-del">-${totalDel}</span></span>
-        `;
-        section.appendChild(header);
-
-        // File chips
-        files.forEach(f => {
-            const chip = document.createElement('div');
-            chip.className = 'file-change-chip';
-
-            const lang = getLangTag(f.ext);
-            const langBadge = lang ? `<span class="fc-lang">${lang}</span>` : '';
-
-            chip.innerHTML = `
-                <svg class="fc-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                <span class="fc-action">Edited</span>
-                ${langBadge}
-                <span class="fc-name">${f.name}</span>
-                <span class="fc-stats">
-                    <span class="fc-add">+${f.insertions}</span>
-                    <span class="fc-del">-${f.deletions}</span>
-                </span>
-                <svg class="fc-open" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-            `;
-
-            chip.addEventListener('click', () => {
-                vscode.postMessage({ type: 'openFile', value: f.fullPath });
-            });
-
-            section.appendChild(chip);
-        });
-
-        messagesDiv.appendChild(section);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }
 })();
