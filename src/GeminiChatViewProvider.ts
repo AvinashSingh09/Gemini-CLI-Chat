@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -186,7 +186,7 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async data => {
             switch (data.type) {
                 case 'sendPrompt':
-                    await this.askGemini(data.value, data.model);
+                    await this.askGemini(data.value, data.model, data.images || [], data.imagePreviews || []);
                     break;
                 case 'login':
                     this.handleLogin();
@@ -219,11 +219,73 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
                         webviewView.webview.postMessage({ type: 'loadHistory', value: sessionsMap[data.sessionId].messages });
                     }
                     break;
+                case 'deleteSession':
+                    const currentSessions = this._context.workspaceState.get<any>('geminiChatSessions', {});
+                    if (currentSessions && currentSessions[data.sessionId]) {
+                        delete currentSessions[data.sessionId];
+                        this._context.workspaceState.update('geminiChatSessions', currentSessions);
+                        // If we deleted the active session, clear it
+                        if (this._activeSessionId === data.sessionId) {
+                            this._activeSessionId = null;
+                            this._context.workspaceState.update('geminiActiveSessionId', null);
+                        }
+                    }
+                    break;
                 case 'openFile':
                     const uri = vscode.Uri.file(data.value);
                     vscode.workspace.openTextDocument(uri).then(doc => {
                         vscode.window.showTextDocument(doc);
                     });
+                    break;
+                case 'pickImage':
+                    {
+                        const imageUris = await vscode.window.showOpenDialog({
+                            canSelectMany: true,
+                            filters: { 'Images': ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'] },
+                            title: 'Select images to attach'
+                        });
+                        if (imageUris && imageUris.length > 0 && this._view) {
+                            const images = imageUris.map(u => {
+                                try {
+                                    const data = fs.readFileSync(u.fsPath);
+                                    const ext = path.extname(u.fsPath).substring(1).toLowerCase();
+                                    const mime = ext === 'svg' ? 'svg+xml' : ext;
+                                    return {
+                                        path: u.fsPath,
+                                        name: path.basename(u.fsPath),
+                                        preview: `data:image/${mime};base64,${data.toString('base64')}`
+                                    };
+                                } catch {
+                                    return { path: u.fsPath, name: path.basename(u.fsPath), preview: null };
+                                }
+                            });
+                            this._view.webview.postMessage({ type: 'imagesSelected', images });
+                        }
+                        break;
+                    }
+                case 'pasteImage':
+                    {
+                        try {
+                            const b64 = data.data.replace(/^data:image\/\w+;base64,/, '');
+                            const ext = (data.data.match(/^data:image\/(\w+)/)?.[1] || 'png');
+                            const tmpDir = path.join(os.tmpdir(), 'gemini-chat-images');
+                            if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+                            const filename = `paste-${Date.now()}.${ext}`;
+                            const filePath = path.join(tmpDir, filename);
+                            fs.writeFileSync(filePath, Buffer.from(b64, 'base64'));
+                            if (this._view) {
+                                this._view.webview.postMessage({
+                                    type: 'imagesSelected',
+                                    images: [{ path: filePath, name: filename, preview: data.data }]
+                                });
+                            }
+                        } catch (e) {
+                            console.error('Paste image error:', e);
+                        }
+                        break;
+                    }
+                case 'getWorkspaceFiles':
+                    await this.sendWorkspaceFiles(data.query || '');
                     break;
             }
         });
@@ -254,9 +316,32 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
         this._view.webview.postMessage({ type: 'authState', email: null });
     }
 
-    private async askGemini(prompt: string, model: string = "auto") {
+    private async sendWorkspaceFiles(query: string) {
+        if (!this._view) return;
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            this._view.webview.postMessage({ type: 'workspaceFiles', files: [] });
+            return;
+        }
+        try {
+            const pattern = query ? `**/*${query}*` : '**/*';
+            const excludePattern = '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/.gemini/**}';
+            const uris = await vscode.workspace.findFiles(pattern, excludePattern, 30);
+            const rootPath = workspaceFolders[0].uri.fsPath;
+            const files = uris.map(u => ({
+                name: path.basename(u.fsPath),
+                relativePath: path.relative(rootPath, u.fsPath).replace(/\\/g, '/'),
+                fullPath: u.fsPath
+            }));
+            this._view.webview.postMessage({ type: 'workspaceFiles', files });
+        } catch (e) {
+            this._view.webview.postMessage({ type: 'workspaceFiles', files: [] });
+        }
+    }
+
+    private async askGemini(prompt: string, model: string = "auto", images: string[] = [], imagePreviews: any[] = []) {
         if (this._view) {
-            this._view.webview.postMessage({ type: 'addMessage', role: 'user', content: prompt });
+            this._view.webview.postMessage({ type: 'addMessage', role: 'user', content: prompt, images: imagePreviews });
             this._view.webview.postMessage({ type: 'setLoading', value: true });
         }
 
@@ -304,6 +389,12 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
             enrichedPrompt = context + "--- USER REQUEST: " + prompt;
         }
 
+        // Prepend image file references so the CLI reads them as context
+        if (images && images.length > 0) {
+            const imageRefs = images.map(img => `@${img}`).join(' ');
+            enrichedPrompt = imageRefs + ' ' + enrichedPrompt;
+        }
+
         enrichedPrompt = enrichedPrompt.replace(/\r?\n/g, ' ');
         const safePrompt = enrichedPrompt.replace(/"/g, '\\"');
         const args = ['-p', `"${safePrompt}"`];
@@ -330,7 +421,16 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
             this._context.workspaceState.update('geminiChatSessions', sessions);
         }
 
+        // Capture git state BEFORE CLI runs (for file change detection)
+        let preGitNumstat = '';
+        if (cwdPath) {
+            try {
+                preGitNumstat = execSync('git diff --numstat', { cwd: cwdPath, encoding: 'utf8', timeout: 5000 }).trim();
+            } catch {}
+        }
+
         const child = spawn(command, args, spawnOptions);
+        const thinkingStartTime = Date.now();
 
         child.on('error', (err) => {
             if (this._view) {
@@ -340,50 +440,192 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
         });
 
         let output = '';
-        let errorOutput = '';
-        let isFirstOutput = true;
+        let thinkingOutput = '';
+        let isFirstStdout = true;
 
-        child.stdout.on('data', (data) => {
-            const chunk = data.toString();
-            output += chunk;
-            if (this._view) {
-                if (isFirstOutput) {
-                    this._view.webview.postMessage({ type: 'setLoading', value: false });
-                    isFirstOutput = false;
-                }
-                this._view.webview.postMessage({ type: 'streamMessage', content: chunk });
-            }
-        });
+        // stderr = CLI thinking/debug output (YOLO, MCP, extensions, etc.)
+        const stderrNoisePatterns = [
+            /YOLO mode/i, /Loaded cached credentials/i, /\[ERROR\] \[IDEClient\]/i,
+            /Please ensure the extension is running/i, /To install the extension/i,
+            /Loading extension:/i, /Scheduling MCP context/i, /Executing MCP context/i,
+            /MCP context refresh/i, /\[MCP info\]/i, /Registering notification/i,
+            /Capabilities:\s*\{/i, /Server '.*' supports/i, /Listening for changes/i,
+            /supabase undefined/i, /already in progress/i, /tools:\s*\{/i,
+            /listChanged:/i,
+        ];
 
         child.stderr.on('data', (data) => {
             const chunk = data.toString();
-            errorOutput += chunk;
-            if (this._view && isFirstOutput) {
-                this._view.webview.postMessage({ type: 'setLoading', value: false });
-                isFirstOutput = false;
+            thinkingOutput += chunk;
+
+            // Filter out noisy boot lines for display
+            const lines = chunk.split('\n');
+            const meaningfulLines = lines.filter((line: string) => {
+                const trimmed = line.trim();
+                if (!trimmed) return false;
+                return !stderrNoisePatterns.some(p => p.test(trimmed));
+            });
+
+            if (meaningfulLines.length > 0 && this._view) {
+                this._view.webview.postMessage({ type: 'streamThinking', content: meaningfulLines.join('\n') + '\n' });
             }
+        });
+
+        // stdout = actual Gemini response
+        let isThinkingPhase = true;
+        child.stdout.on('data', (data) => {
+            const chunk = data.toString();
+            output += chunk;
+
             if (this._view) {
-                this._view.webview.postMessage({ type: 'streamMessage', content: chunk });
+                if (isFirstStdout) {
+                    this._view.webview.postMessage({ type: 'setLoading', value: false });
+                    isFirstStdout = false;
+                }
+
+                const { reasoning, response } = this.splitReasoningFromResponse(output);
+
+                if (isThinkingPhase && response.trim().length > 0) {
+                    isThinkingPhase = false;
+                    const thinkingElapsed = Math.round((Date.now() - thinkingStartTime) / 1000);
+                    this._view.webview.postMessage({ type: 'thinkingDone', seconds: thinkingElapsed, content: thinkingOutput });
+                }
+
+                if (isThinkingPhase) {
+                    this._view.webview.postMessage({ type: 'streamReasoning', reasoning });
+                } else {
+                    this._view.webview.postMessage({ type: 'streamMessageDynamic', response });
+                }
             }
         });
 
         child.on('close', (code) => {
             if (this._view) {
                 this._view.webview.postMessage({ type: 'setLoading', value: false });
+
+                // If we never got stdout, finalize thinking and show error
+                if (isFirstStdout && thinkingOutput.length > 0) {
+                    const thinkingElapsed = Math.round((Date.now() - thinkingStartTime) / 1000);
+                    this._view.webview.postMessage({ type: 'thinkingDone', seconds: thinkingElapsed, content: thinkingOutput });
+                }
+
                 if (code !== 0 && output.length === 0) {
-                    this._view.webview.postMessage({ type: 'addMessage', role: 'assistant', content: `Error (Code ${code}):\n${errorOutput}` });
+                    this._view.webview.postMessage({ type: 'addMessage', role: 'assistant', content: `Error (Code ${code}):\n${thinkingOutput}` });
                 } else if (code !== 0) {
                     this._view.webview.postMessage({ type: 'streamMessage', content: `\n\n[Exited with code ${code}]` });
+                }
+
+                let finalReasoning = '';
+                let finalResponse = output || thinkingOutput;
+
+                // Post-process locally to ensure exact division before saving
+                if (output.length > 0) {
+                    const { reasoning, response } = this.splitReasoningFromResponse(output);
+                    if (reasoning.length > 0) {
+                        finalReasoning = reasoning;
+                        finalResponse = response || output;
+                    }
                 }
 
                 const allSessions = this._context.workspaceState.get<any>('geminiChatSessions', {});
                 if (this._activeSessionId && allSessions[this._activeSessionId]) {
                     allSessions[this._activeSessionId].messages.push({ role: 'user', content: prompt });
-                    allSessions[this._activeSessionId].messages.push({ role: 'assistant', content: output || errorOutput });
+                    allSessions[this._activeSessionId].messages.push({ role: 'assistant', content: finalResponse, reasoning: finalReasoning });
                     this._context.workspaceState.update('geminiChatSessions', allSessions);
+                }
+
+                // Detect file changes by comparing git state before/after
+                if (cwdPath) {
+                    try {
+                        const postGitNumstat = execSync('git diff --numstat', { cwd: cwdPath, encoding: 'utf8', timeout: 5000 }).trim();
+                        const changedFiles = this.detectFileChanges(preGitNumstat, postGitNumstat, cwdPath);
+                        if (changedFiles.length > 0 && this._view) {
+                            this._view.webview.postMessage({ type: 'fileChanges', files: changedFiles });
+                        }
+                    } catch {}
                 }
             }
         });
+    }
+
+    private detectFileChanges(pre: string, post: string, cwdPath: string): any[] {
+        const parseNumstat = (text: string) => {
+            const map = new Map<string, { add: number; del: number }>();
+            text.split('\n').filter(l => l.trim()).forEach(line => {
+                const parts = line.split('\t');
+                if (parts.length >= 3) {
+                    map.set(parts[2], { add: parseInt(parts[0]) || 0, del: parseInt(parts[1]) || 0 });
+                }
+            });
+            return map;
+        };
+
+        const preMap = parseNumstat(pre);
+        const postMap = parseNumstat(post);
+        const changes: any[] = [];
+
+        postMap.forEach((stats, file) => {
+            const preStat = preMap.get(file);
+            if (!preStat || preStat.add !== stats.add || preStat.del !== stats.del) {
+                const ext = path.extname(file).substring(1).toLowerCase();
+                changes.push({
+                    file: file,
+                    name: path.basename(file),
+                    fullPath: path.join(cwdPath, file),
+                    ext: ext,
+                    insertions: stats.add,
+                    deletions: stats.del
+                });
+            }
+        });
+
+        return changes;
+    }
+
+    private splitReasoningFromResponse(text: string): { reasoning: string; response: string } {
+        const reasoningPatterns = [
+            /^I will /i, /^I'll /i, /^I'm /i, /^I need to /i,
+            /^I should /i, /^Let me /i, /^I can /i, /^I've /i,
+            /^I encountered /i, /^I have identified/i, /^I have found/i,
+            /^Now,? I/i, /^Next,? I/i, /^First,? I/i, /^Then,? I/i,
+            /^Finally,? I/i, /^I also /i, /^I want to /i,
+            /^Scheduling /i, /^Executing /i, /^Loading /i,
+            /^Registering /i, /^Capabilities:/i, /^Server '/i,
+        ];
+
+        // Split on sentence boundaries: period followed by space + capital letter, or by "I " patterns
+        const sentences = text.split(/(?<=\.)\s+(?=[A-Z])/);
+        
+        let reasoningParts: string[] = [];
+        let responseParts: string[] = [];
+        let foundResponse = false;
+
+        for (const sentence of sentences) {
+            const trimmed = sentence.trim();
+            if (!trimmed) continue;
+
+            if (!foundResponse) {
+                const isReasoning = reasoningPatterns.some(p => p.test(trimmed));
+                if (isReasoning) {
+                    reasoningParts.push(trimmed);
+                } else {
+                    // This is the start of the actual response
+                    foundResponse = true;
+                    responseParts.push(trimmed);
+                }
+            } else {
+                responseParts.push(trimmed);
+            }
+        }
+
+        if (reasoningParts.length > 0) {
+            return {
+                reasoning: reasoningParts.join(' '),
+                response: responseParts.join(' ')
+            };
+        }
+
+        return { reasoning: '', response: text };
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {
@@ -430,13 +672,41 @@ export class GeminiChatViewProvider implements vscode.WebviewViewProvider {
         <div id="messages"></div>
         <div id="bottom-anchor">
             <div id="loading" class="hidden">Gemini is thinking...</div>
+            <div id="mention-dropdown" class="hidden"></div>
             <div id="input-wrapper">
-                <textarea id="prompt-input" placeholder="Ask anything..." rows="1"></textarea>
+                <div id="attachment-previews" class="hidden"></div>
+                <textarea id="prompt-input" placeholder="Ask anything, @ to mention, / for workflows" rows="1"></textarea>
                 <div id="action-row">
-                    <select id="model-select" class="model-selector">
-                        <option value="auto">Auto (Gemini 3)</option>
-                    </select>
-                    <button id="send-button">SEND</button>
+                    <div class="action-left">
+                        <div class="add-context-wrapper">
+                            <button id="add-context-btn" class="icon-btn ctx-btn" title="Add context">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            </button>
+                            <div id="context-menu" class="hidden">
+                                <div class="context-menu-header">Add context</div>
+                                <div class="context-menu-item" id="ctx-media">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                                    Media
+                                </div>
+                                <div class="context-menu-item" id="ctx-mentions">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path></svg>
+                                    Mentions
+                                </div>
+                            </div>
+                        </div>
+                        <select id="model-select" class="model-selector">
+                            <option value="auto">Auto (Gemini 3)</option>
+                            <option value="gemini-3-pro-preview">gemini-3-pro-preview</option>
+                            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                        </select>
+                    </div>
+                    <div class="action-right">
+                        <button id="send-button" title="Send">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
